@@ -1,0 +1,5 @@
+{
+  "name": "年間行事計画エクスポートツール",
+  "description": "学校の年間行事計画ファイル（PDF・Excel/CSV）を読み込み、AIで行事を解析・分類し、Googleカレンダー等にインポートできる形式（ICS/CSV）で出力するツールです。",
+  "requestFramePermissions": []
+}
