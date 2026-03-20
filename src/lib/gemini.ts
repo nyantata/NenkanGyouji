@@ -6,9 +6,10 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 export async function analyzeCalendar(fileData: string, mimeType: string, fileText?: string): Promise<Omit<SchoolEvent, 'id' | 'selected'>[]> {
   const prompt = `
 提供された学校の年間行事計画から、行事のリストを抽出してください。
+【重要】4月から翌年3月までの1年間すべての行事を、途中で省略することなく最後まで完全に抽出してください。
 原文に存在する情報のみを抽出し、推測・補完は一切しないでください。
-対象学年は '①②③', '全学年' などの文字列で抽出してください。
-カテゴリは以下のいずれかに分類してください：'grade' (学年行事), 'meeting' (職員会議), 'exam' (試験), 'open_school' (学校説明会), 'other' (その他)。
+対象学年は '1年', '2年', '全学年' などの文字列で抽出してください。
+カテゴリは行事の内容から適切なもの（例: 学年行事、職員会議、試験、学校説明会、その他 など）を推測して日本語で設定してください。
 
 以下のJSONスキーマに従って出力してください。
 `;
@@ -30,16 +31,17 @@ export async function analyzeCalendar(fileData: string, mimeType: string, fileTe
     model: "gemini-3.1-pro-preview",
     contents: { parts },
     config: {
+      maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
         items: {
           type: Type.OBJECT,
           properties: {
-            date: { type: Type.STRING, description: "YYYY-MM-DD形式の日付" },
+            date: { type: Type.STRING, description: "YYYY-MM-DD形式の日付。日付が特定できない場合（例: 4月上旬）は、その文字列をそのまま出力してください。" },
             title: { type: Type.STRING, description: "行事名" },
-            category: { type: Type.STRING, description: "カテゴリID (grade, meeting, exam, open_school, other)" },
-            target: { type: Type.STRING, description: "対象学年 (例: ①②③, 全学年)。不明な場合はnull" },
+            category: { type: Type.STRING, description: "カテゴリ名（日本語）" },
+            target: { type: Type.STRING, description: "対象学年 (例: 1年, 全学年)。不明な場合はnull" },
             time_start: { type: Type.STRING, description: "開始時刻 HH:MM形式。不明な場合はnull" },
             time_end: { type: Type.STRING, description: "終了時刻 HH:MM形式。不明な場合はnull" },
             notes: { type: Type.STRING, description: "備考・詳細。不明な場合はnull" }

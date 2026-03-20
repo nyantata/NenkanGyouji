@@ -10,10 +10,3 @@ export interface SchoolEvent {
   selected: boolean;
 }
 
-export const CATEGORIES = [
-  { id: "grade", name: "学年行事" },
-  { id: "meeting", name: "職員会議" },
-  { id: "exam", name: "試験" },
-  { id: "open_school", name: "学校説明会" },
-  { id: "other", name: "その他" }
-];
