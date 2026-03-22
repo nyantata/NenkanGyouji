@@ -1,6 +1,7 @@
 export interface SchoolEvent {
   id: string;
-  date: string;
+  date_start: string;
+  date_end: string;
   title: string;
   category: string;
   target: string | null;
@@ -9,4 +10,5 @@ export interface SchoolEvent {
   notes: string | null;
   selected: boolean;
 }
+
 

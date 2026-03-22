@@ -9,6 +9,8 @@ export default function App() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [events, setEvents] = useState<SchoolEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("AIが解析中...");
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
@@ -16,8 +18,41 @@ export default function App() {
   const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{id: string, field: keyof SchoolEvent} | null>(null);
   const [hasSavedData, setHasSavedData] = useState(false);
+  const [exportStyle, setExportStyle] = useState<'duration' | 'start_only'>('duration');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (loading) {
+      setLoadingProgress(0);
+      setLoadingMessage("📄 PDFデータを読み込んでいます...");
+      
+      const startTime = Date.now();
+      interval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        
+        if (elapsed < 5000) {
+          setLoadingProgress((elapsed / 5000) * 20); // 0 to 20%
+        } else if (elapsed < 15000) {
+          setLoadingMessage("🔍 カレンダーの構造と日付を解析中...");
+          setLoadingProgress(20 + ((elapsed - 5000) / 10000) * 40); // 20 to 60%
+        } else if (elapsed < 25000) {
+          setLoadingMessage("🗓️ 行事名と期間（矢印）を照合しています...");
+          setLoadingProgress(60 + ((elapsed - 15000) / 10000) * 30); // 60 to 90%
+        } else {
+          setLoadingMessage("✨ 最終データの整形とダブルチェックを行っています...");
+          // slowly approach 99%
+          const extra = elapsed - 25000;
+          const slowProgress = 90 + (9 * (1 - Math.exp(-extra / 10000)));
+          setLoadingProgress(slowProgress);
+        }
+      }, 100);
+    } else {
+      setLoadingProgress(0);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
 
   useEffect(() => {
     const saved = localStorage.getItem('calendar_app_data');
@@ -34,20 +69,27 @@ export default function App() {
         selectedCategories: Array.from(selectedCategories),
         selectedMonths: Array.from(selectedMonths),
         selectedTargets: Array.from(selectedTargets),
+        exportStyle,
       };
       localStorage.setItem('calendar_app_data', JSON.stringify(dataToSave));
     }
-  }, [events, selectedCategories, selectedMonths, selectedTargets, step]);
+  }, [events, selectedCategories, selectedMonths, selectedTargets, step, exportStyle]);
 
   const loadSavedData = () => {
     const saved = localStorage.getItem('calendar_app_data');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setEvents(parsed.events || []);
+        const parsedEvents = (parsed.events || []).map((e: any) => ({
+          ...e,
+          date_start: e.date_start || e.date || '',
+          date_end: e.date_end || e.date || ''
+        }));
+        setEvents(parsedEvents);
         setSelectedCategories(new Set(parsed.selectedCategories || []));
         setSelectedMonths(new Set(parsed.selectedMonths || []));
         setSelectedTargets(new Set(parsed.selectedTargets || []));
+        setExportStyle(parsed.exportStyle || 'duration');
         setStep(parsed.step || 2);
         setHasSavedData(false);
       } catch (e) {
@@ -92,7 +134,70 @@ export default function App() {
 
       const parsedEvents = await analyzeCalendar(fileData, mimeType, fileText);
       
-      const eventsWithId: SchoolEvent[] = parsedEvents.map((ev, i) => ({
+      // Merge duplicate events (e.g., "1年ガイダンス", "2年ガイダンス" -> "1・2年ガイダンス")
+      const groups = new Map<string, any[]>();
+      parsedEvents.forEach(ev => {
+        const baseTitle = ev.title.replace(/^[0-9１-９・、,]+年\s*/, '').trim();
+        const key = `${ev.date_start}_${ev.date_end}_${baseTitle}`;
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
+        groups.get(key)!.push(ev);
+      });
+
+      const mergedEvents: any[] = [];
+      groups.forEach((group) => {
+        if (group.length === 1) {
+          mergedEvents.push(group[0]);
+          return;
+        }
+        const first = group[0];
+        const grades = new Set<string>();
+        const targets = new Set<string>();
+        const notes = new Set<string>();
+
+        group.forEach(e => {
+          if (e.target) targets.add(e.target);
+          if (e.notes) notes.add(e.notes);
+          
+          const targetMatch = e.target?.match(/[0-9１-９]/g);
+          if (targetMatch) targetMatch.forEach((m: string) => grades.add(m));
+          
+          const titleMatch = e.title.match(/^[0-9１-９・、,]+/);
+          if (titleMatch) {
+            const digits = titleMatch[0].match(/[0-9１-９]/g);
+            if (digits) digits.forEach((d: string) => grades.add(d));
+          }
+        });
+
+        let newTitle = first.title;
+        let newTarget = first.target;
+
+        if (grades.size > 0) {
+          const hasAllGrades = grades.has('1') && grades.has('2') && grades.has('3');
+          const baseTitle = first.title.replace(/^[0-9１-９・、,]+年\s*/, '').trim();
+          
+          if (hasAllGrades) {
+            newTitle = baseTitle;
+            newTarget = '全学年';
+          } else {
+            const sortedGrades = Array.from(grades).sort((a, b) => parseInt(a) - parseInt(b)).join('・');
+            newTitle = `${sortedGrades}年${baseTitle}`;
+            newTarget = `${sortedGrades}年`;
+          }
+        } else if (targets.size > 0) {
+          newTarget = Array.from(targets).join('・');
+        }
+
+        mergedEvents.push({
+          ...first,
+          title: newTitle,
+          target: newTarget,
+          notes: Array.from(notes).join(' / ') || null
+        });
+      });
+      
+      const eventsWithId: SchoolEvent[] = mergedEvents.map((ev, i) => ({
         ...ev,
         id: `event-${i}-${Date.now()}`,
         selected: true
@@ -162,7 +267,7 @@ export default function App() {
     const tgt = e.target || '未指定';
     
     let monthMatch = false;
-    const match = e.date?.match(/^\d{4}-(\d{2})-\d{2}$/);
+    const match = e.date_start?.match(/^\d{4}-(\d{2})-\d{2}$/);
     if (match) {
       monthMatch = selectedMonths.has(parseInt(match[1], 10));
     } else {
@@ -179,7 +284,7 @@ export default function App() {
     const value = (event[field] as string) || '';
     
     let isError = false;
-    if (field === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) isError = true;
+    if ((field === 'date_start' || field === 'date_end') && !/^\d{4}-\d{2}-\d{2}$/.test(value)) isError = true;
     if ((field === 'time_start' || field === 'time_end') && value && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(value)) isError = true;
 
     if (isEditing) {
@@ -209,7 +314,8 @@ export default function App() {
   };
 
   const hasRowError = (event: SchoolEvent) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(event.date || '')) return true;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(event.date_start || '')) return true;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(event.date_end || '')) return true;
     if (event.time_start && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(event.time_start)) return true;
     if (event.time_end && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(event.time_end)) return true;
     return false;
@@ -288,10 +394,17 @@ export default function App() {
               />
               
               {loading ? (
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center w-full max-w-md mx-auto">
                   <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
-                  <p className="text-lg font-medium text-indigo-900">AIが解析中...</p>
-                  <p className="text-sm text-indigo-600/70 mt-2">これには数分かかる場合があります</p>
+                  <p className="text-lg font-medium text-indigo-900">{loadingMessage}</p>
+                  
+                  <div className="w-full bg-indigo-100 rounded-full h-2.5 mt-6 mb-2 overflow-hidden">
+                    <div 
+                      className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out" 
+                      style={{ width: `${loadingProgress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-sm text-indigo-600/70">これには数分かかる場合があります</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center">
@@ -424,19 +537,20 @@ export default function App() {
                   <thead className="text-xs text-neutral-500 uppercase bg-neutral-50 border-b border-neutral-200">
                     <tr>
                       <th className="px-4 py-3 w-12 text-center">選択</th>
-                      <th className="px-4 py-3 w-32">日付 (YYYY-MM-DD)</th>
+                      <th className="px-4 py-3 w-28">開始日 (YYYY-MM-DD)</th>
+                      <th className="px-4 py-3 w-28">終了日 (YYYY-MM-DD)</th>
                       <th className="px-4 py-3 min-w-[12rem]">行事名</th>
-                      <th className="px-4 py-3 w-32">カテゴリ</th>
-                      <th className="px-4 py-3 w-32">対象学年</th>
-                      <th className="px-4 py-3 w-24">開始 (HH:MM)</th>
-                      <th className="px-4 py-3 w-24">終了 (HH:MM)</th>
+                      <th className="px-4 py-3 w-24">カテゴリ</th>
+                      <th className="px-4 py-3 w-24">対象学年</th>
+                      <th className="px-4 py-3 w-20">開始 (HH:MM)</th>
+                      <th className="px-4 py-3 w-20">終了 (HH:MM)</th>
                       <th className="px-4 py-3 min-w-[12rem]">備考</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-200">
                     {filteredEvents.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-neutral-500">
+                        <td colSpan={9} className="px-4 py-8 text-center text-neutral-500">
                           表示する行事がありません。
                         </td>
                       </tr>
@@ -448,7 +562,8 @@ export default function App() {
                               {event.selected ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-neutral-300" />}
                             </button>
                           </td>
-                          <td className="px-2 py-2">{renderCell(event, 'date', 'YYYY-MM-DD')}</td>
+                          <td className="px-2 py-2">{renderCell(event, 'date_start', 'YYYY-MM-DD')}</td>
+                          <td className="px-2 py-2">{renderCell(event, 'date_end', 'YYYY-MM-DD')}</td>
                           <td className="px-2 py-2 font-medium">{renderCell(event, 'title', '行事名')}</td>
                           <td className="px-2 py-2">{renderCell(event, 'category', '未分類')}</td>
                           <td className="px-2 py-2">{renderCell(event, 'target', '未指定')}</td>
@@ -472,7 +587,42 @@ export default function App() {
               <p className="text-neutral-500">選択した {selectedCount} 件の行事をダウンロードします。</p>
             </div>
 
-            <div className="max-w-md mx-auto">
+            <div className="max-w-md mx-auto space-y-6">
+              {/* Export Options */}
+              <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm">
+                <h3 className="text-sm font-bold text-neutral-900 mb-4">期間行事の出力設定</h3>
+                <div className="space-y-3">
+                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${exportStyle === 'duration' ? 'border-indigo-600 bg-indigo-50' : 'border-neutral-200 hover:bg-neutral-50'}`}>
+                    <input 
+                      type="radio" 
+                      name="exportStyle" 
+                      value="duration" 
+                      checked={exportStyle === 'duration'} 
+                      onChange={() => setExportStyle('duration')}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-600"
+                    />
+                    <div>
+                      <div className="font-medium text-neutral-900 text-sm">カレンダーの期間として設定する</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">例: 10/1〜10/5まで毎日帯状に表示されます</div>
+                    </div>
+                  </label>
+                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${exportStyle === 'start_only' ? 'border-indigo-600 bg-indigo-50' : 'border-neutral-200 hover:bg-neutral-50'}`}>
+                    <input 
+                      type="radio" 
+                      name="exportStyle" 
+                      value="start_only" 
+                      checked={exportStyle === 'start_only'} 
+                      onChange={() => setExportStyle('start_only')}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-600"
+                    />
+                    <div>
+                      <div className="font-medium text-neutral-900 text-sm">開始日のみに設定する</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">開始日にのみ予定を作成し、終了日は備考欄に記載します</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <div className="bg-white p-8 rounded-2xl border border-neutral-200 shadow-sm flex flex-col items-center text-center">
                 <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
                   <FileText className="w-8 h-8 text-emerald-600" />
@@ -482,7 +632,7 @@ export default function App() {
                   Googleカレンダーの公式インポート形式に準拠したCSVファイルです。Excelで編集したい場合にも便利です。
                 </p>
                 <button 
-                  onClick={() => exportToCSV(filteredEvents.filter(e => e.selected))}
+                  onClick={() => exportToCSV(filteredEvents.filter(e => e.selected), exportStyle)}
                   className="mt-auto w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
                   <Download className="w-5 h-5" />
