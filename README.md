@@ -1,20 +1,45 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# アプリケーション名 (必要に応じて変更してください)
 
-# Run and deploy your AI Studio app
+このプロジェクトは、Google AI Studio (Build) で実行できるように設計されています。
 
-This contains everything you need to run your app locally.
+## 実行方法
 
-View your app in AI Studio: https://ai.studio/apps/f9c377af-8689-4bb1-aff2-ca3c12bbe59e
+Google AI Studio (Build) はAIエージェントベースの環境であるため、単にファイルをアップロードするだけではAIが意図を正確に汲み取れない場合があります。
+確実に（高い再現性で）アプリを復元・実行するために、以下のいずれかの方法手順に従ってください。
 
-## Run Locally
+### 方法A: 共有リンクから直接開く（推奨・最も確実）
+この方法が最も簡単で、100%の再現性があります。以下のリンクから直接AI Studioのプロジェクトを複製できます。
 
-**Prerequisites:**  Node.js
+1. 以下の共有リンクにアクセスします。
+   👉 **[プロジェクトを開く (Google AI Studio)](https://ai.studio/apps/f9c377af-8689-4bb1-aff2-ca3c12bbe59e)**
+2. 画面上の **「Remix」** ボタンをクリックすると、ご自身のAI Studio環境にプロジェクトが完全に複製され、すぐに実行可能な状態になります。
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 方法B: GitHubからダウンロードして復元する
+GitHubのリポジトリからZIPファイルをダウンロードして実行する場合は、AIに明確な指示（プロンプト）を与えることで再現性を高めることができます。
+
+#### 1. プロジェクトのダウンロード
+1. このGitHubリポジトリの右上にある **「Code」** ボタンをクリックします。
+2. **「Download ZIP」** を選択し、ZIPファイルをパソコンにダウンロードします。
+
+#### 2. AI Studioへのアップロードと確実な実行プロンプト
+1. [Google AI Studio Build](https://ai.studio/build) にアクセスし、新しいチャットを開きます。
+2. チャットの入力欄の左下にある **「＋（添付）」アイコン** をクリックし、ダウンロードしたZIPファイルをそのままアップロードします。
+3. **【重要】** ZIPファイルを添付した状態で、以下のテキストをコピーしてチャットに入力し、送信してください。
+
+```text
+添付したZIPファイルを解凍し、現在のワークスペースに展開してください。
+その後、以下の手順で環境を構築し、アプリを起動してください。
+1. `npm install` を実行して依存関係をインストールする
+2. `npm run dev` を実行して開発サーバーを起動する
+コードの変更や解説は不要です。環境の復元と起動のみを行ってください。
+```
+
+4. AIが指示に従ってファイルを展開し、サーバーを起動します。右側のプレビューパネルにアプリが表示されれば成功です。
+
+### 3. 環境変数の設定 (必要な場合)
+このアプリで外部APIを使用している場合、APIキーの設定が必要です。
+1. AI Studioの画面右上にある **Settings（歯車アイコン）** をクリックします。
+2. **Secrets** または **Environment Variables** の項目から、必要なAPIキーを追加してください。
+   * ※ `GEMINI_API_KEY` はAI Studioによって自動的に設定されるため、手動での追加は不要です。
